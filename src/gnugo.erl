@@ -85,13 +85,21 @@ handle_call(clear, From, State0) ->
 handle_call({genmove, For}, From, State0) ->
   Handler =
     fun(Arg, HandlerState) ->
-        gen_server:reply(From, {ok, Arg}),
+        Move =
+          case Arg of
+            "PASS" -> pass;
+            "pass" -> pass;
+            "RESIGN" -> resign;
+            "resign" -> resign;
+            _ -> Arg
+          end,
+        gen_server:reply(From, {ok, Move}),
         HandlerState
     end,
   State = command(["genmove ", string:to_lower(atom_to_list(For))], Handler, State0),
   {noreply, State};
 
-handle_call({move, For, At}, From, #s{
+handle_call({move, For, At0}, From, #s{
     waiting_for_replies = _Waiting
   } = State0) ->
   Handler =
@@ -99,6 +107,12 @@ handle_call({move, For, At}, From, #s{
         gen_server:reply(From, ok),
         HandlerState
     end,
+  At =
+    case At0 of
+      pass -> "PASS";
+      _ -> At0
+    end,
+
   State = command(["play ", string:to_lower(atom_to_list(For)), " ", At], Handler, State0),
   {noreply, State};
 handle_call(_Request, _From, State) ->
@@ -110,7 +124,6 @@ handle_cast(_Msg, State) ->
 handle_info({Port, {data, {eol,<<>>}}}, #s{port = Port} = State) ->
   {noreply, State};
 handle_info({Port, {data, Data}}, #s{port = Port} = State0) ->
-  lager:info("gnugo: ~p", [Data]),
   State = handle_data(Data, State0),
   {noreply, State};
 handle_info({Port, {exit_status, _Status}}, #s{port = Port} = State) ->
@@ -161,12 +174,28 @@ command(Command, Handler, #s{
 
 -ifdef(TEST).
 
-go_test() ->
-  {ok, Pid} = start_link(),
-  boardsize(Pid, 19),
-  clear(Pid),
-  ok = move(Pid, 'WHITE', "D5"),
-  {ok, _Move} = genmove(Pid, 'BLACK'),
-  ok.
+go_test_() ->
+  {timeout, 120,
+    fun() ->
+        {ok, Pid} = start_link(),
+        boardsize(Pid, 9),
+        clear(Pid),
+        ok = move(Pid, 'WHITE', "D5"),
+        {ok, _Move} = genmove(Pid, 'BLACK'),
+        lists:foldl(
+          fun(N, Stone) ->
+              {ok, Move} = genmove(Pid, Stone),
+              ?debugFmt("~p ~p", [N, Move]),
+              opposite(Stone)
+          end,
+          'WHITE',
+          lists:seq(1, 100)
+        ),
+        ok
+    end
+  }.
+
+opposite('BLACK') -> 'WHITE';
+opposite('WHITE') -> 'BLACK'.
 
 -endif.
