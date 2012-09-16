@@ -88,7 +88,7 @@ handle_call({genmove, For}, From, State0) ->
         gen_server:reply(From, {ok, Arg}),
         HandlerState
     end,
-  State = command(["genmove ", atom_to_list(For)], Handler, State0),
+  State = command(["genmove ", string:to_lower(atom_to_list(For))], Handler, State0),
   {noreply, State};
 
 handle_call({move, For, At}, From, #s{
@@ -99,7 +99,7 @@ handle_call({move, For, At}, From, #s{
         gen_server:reply(From, ok),
         HandlerState
     end,
-  State = command(["play ", atom_to_list(For), " ", At], Handler, State0),
+  State = command(["play ", string:to_lower(atom_to_list(For)), " ", At], Handler, State0),
   {noreply, State};
 handle_call(_Request, _From, State) ->
   {reply, ok, State}.
@@ -110,6 +110,7 @@ handle_cast(_Msg, State) ->
 handle_info({Port, {data, {eol,<<>>}}}, #s{port = Port} = State) ->
   {noreply, State};
 handle_info({Port, {data, Data}}, #s{port = Port} = State0) ->
+  lager:info("gnugo: ~p", [Data]),
   State = handle_data(Data, State0),
   {noreply, State};
 handle_info({Port, {exit_status, _Status}}, #s{port = Port} = State) ->
@@ -164,8 +165,8 @@ go_test() ->
   {ok, Pid} = start_link(),
   boardsize(Pid, 19),
   clear(Pid),
-  ok = move(Pid, white, "D5"),
-  {ok, _Move} = genmove(Pid, black),
+  ok = move(Pid, 'WHITE', "D5"),
+  {ok, _Move} = genmove(Pid, 'BLACK'),
   ok.
 
 -endif.
