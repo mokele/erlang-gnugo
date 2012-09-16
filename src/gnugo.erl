@@ -110,7 +110,6 @@ handle_cast(_Msg, State) ->
 handle_info({Port, {data, {eol,<<>>}}}, #s{port = Port} = State) ->
   {noreply, State};
 handle_info({Port, {data, Data}}, #s{port = Port} = State0) ->
-  ?debugFmt("Data ~p", [Data]),
   State = handle_data(Data, State0),
   {noreply, State};
 handle_info({Port, {exit_status, _Status}}, #s{port = Port} = State) ->
@@ -146,10 +145,6 @@ reply(Seq, Args, #s{waiting_for_replies = Waiting} = State) ->
     [] ->
       State
   end.
-
-command(Command, State) ->
-  Handler = fun(_, HState) -> HState end,
-  command(Command, Handler, State).
 
 command(Command, Handler, #s{
     seq = Seq,
