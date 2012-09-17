@@ -8,7 +8,9 @@
 
 -export([
     start_link/0,
-    move/3, genmove/2, boardsize/2, clear/1
+    move/3,
+    genmove/2, genmove/3,
+    boardsize/2, clear/1
   ]).
 
 %% ------------------------------------------------------------------
@@ -43,6 +45,9 @@ move(Pid, Color, At) ->
 
 genmove(Pid, For) ->
   gen_server:call(Pid, {genmove, For}).
+
+genmove(Pid, For, Timeout) ->
+  gen_server:call(Pid, {genmove, For}, Timeout).
 
 boardsize(Pid, Size) ->
   gen_server:call(Pid, {boardsize, Size}).
