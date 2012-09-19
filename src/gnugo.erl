@@ -10,7 +10,8 @@
     start_link/0,
     move/3,
     genmove/2, genmove/3,
-    boardsize/2, clear/1
+    boardsize/2, clear/1,
+    end_state/3
   ]).
 
 %% ------------------------------------------------------------------
@@ -52,6 +53,9 @@ genmove(Pid, For, Timeout) ->
 boardsize(Pid, Size) ->
   gen_server:call(Pid, {boardsize, Size}).
 
+end_state(Pid, Size, Points) ->
+  gen_server:call(Pid, {end_state, Size, Points}, infinity).
+
 clear(Pid) ->
   gen_server:call(Pid, clear).
 
@@ -62,7 +66,7 @@ clear(Pid) ->
 init([]) ->
   Command = "gnugo --mode gtp",
   Port = open_port({spawn, Command}, [
-      stream, binary, {line, 50}
+      stream, binary, {line, 600}
     ]),
   State = #s{
     seq = 1,
@@ -71,6 +75,79 @@ init([]) ->
   },
   {ok, State}.
 
+wait_for_response(State) ->
+  wait_for_response(State, <<>>).
+wait_for_response(#s{port = Port} = State, Acc) ->
+  receive
+    {Port, {data, {eol, <<>>}}} ->
+      case Acc of
+        <<>> ->
+          wait_for_response(State, Acc);
+        _ ->
+          handle_data({eol, Acc}, State)
+      end;
+    {Port, {data, {eol, Data}}} ->
+      wait_for_response(State, 
+        case Acc of
+          <<>> -> Data;
+          _ -> <<Acc/binary, " ", Data/binary>>
+        end)
+  end.
+
+play_moves(Moves, State0) ->
+  State1 =
+    lists:foldl(
+      fun({For, At}, FoldState) ->
+          command(["play ", string:to_lower(atom_to_list(For)), " ", At], FoldState)
+      end,
+      State0,
+      Moves
+    ),
+
+  lists:foldl(
+    fun(_, FoldState) ->
+        wait_for_response(FoldState)
+    end,
+    State1,
+    Moves
+  ).
+
+
+handle_call({end_state, Size, Moves}, _From, State0) ->
+  State1 = command("clear_board", State0#s{seq = 1}),
+  State2 = wait_for_response(State1),
+  State3 = command(["boardsize ", integer_to_list(Size)], State2#s{size = Size}),
+  State4 = wait_for_response(State3),
+  State5 = play_moves(Moves, State4),
+
+  Statuses = [alive, seki, dead, white_territory, black_territory, dame],
+  Handler =
+    fun(Status) ->
+        fun(Args, HandlerState) ->
+            {HandlerState, {Status, string:tokens(Args, " ")}}
+        end
+    end,
+  State6 =
+    lists:foldl(
+      fun(Status, FoldState) ->
+          command(["final_status_list ", atom_to_list(Status)],
+            Handler(Status), FoldState)
+      end,
+      State5,
+      Statuses
+    ),
+
+  {State, PointStates} =
+    lists:foldl(
+      fun(_, {FoldState0, PointsFold}) ->
+          {FoldState1, Points0} = wait_for_response(FoldState0),
+          {FoldState1, [Points0|PointsFold]}
+      end,
+      {State6, []},
+      Statuses
+    ),
+
+  {reply, {ok, PointStates}, State};
 handle_call({boardsize, Size}, From, State0) ->
   Handler =
     fun(_, HandlerState) ->
@@ -126,8 +203,6 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
   {noreply, State}.
 
-handle_info({Port, {data, {eol,<<>>}}}, #s{port = Port} = State) ->
-  {noreply, State};
 handle_info({Port, {data, Data}}, #s{port = Port} = State0) ->
   State = handle_data(Data, State0),
   {noreply, State};
@@ -146,6 +221,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+handle_data({eol, <<>>}, State) -> State;
 handle_data({eol, <<$=,R/binary>>}, State) ->
   case re:run(R, "^([0-9]+) (.*)$", [{capture, all, list}]) of
     {match, [_, SeqL, Args]} ->
@@ -165,6 +241,9 @@ reply(Seq, Args, #s{waiting_for_replies = Waiting} = State) ->
       State
   end.
 
+command(Command, State) ->
+  Handler = fun(_, HandlerState) -> HandlerState end,
+  command(Command, Handler, State).
 command(Command, Handler, #s{
     seq = Seq,
     port = Port,
