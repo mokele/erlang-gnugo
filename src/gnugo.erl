@@ -7,7 +7,7 @@
 %% ------------------------------------------------------------------
 
 -export([
-    start_link/0,
+    start_link/1,
     move/3,
     genmove/2, genmove/3,
     boardsize/2, clear/1,
@@ -38,8 +38,8 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link() ->
-  gen_server:start_link(?MODULE, [], []).
+start_link(Owner) ->
+  gen_server:start_link(?MODULE, [Owner], []).
 
 move(Pid, Color, At) ->
   gen_server:call(Pid, {move, Color, At}).
@@ -63,7 +63,8 @@ clear(Pid) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([]) ->
+init([Owner]) ->
+  monitor(process, Owner),
   Command = "gnugo --mode gtp",
   Port = open_port({spawn, Command}, [
       stream, binary, {line, 600}
@@ -203,6 +204,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
   {noreply, State}.
 
+handle_info({'DOWN', _, _, _, Reason}, State) ->
+  {stop, Reason, State};
 handle_info({Port, {data, Data}}, #s{port = Port} = State0) ->
   State = handle_data(Data, State0),
   {noreply, State};

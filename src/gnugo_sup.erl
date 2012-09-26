@@ -21,7 +21,7 @@ start_link() ->
   supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 start_child() ->
-  supervisor:start_child(?SERVER, []).
+  supervisor:start_child(?SERVER, [self()]).
 
 %% ===================================================================
 %% Supervisor callbacks
